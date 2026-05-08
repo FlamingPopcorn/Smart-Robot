@@ -1,0 +1,69 @@
+; PIOASM Instruction set (All 9 informations)
+;   IN – shift up to 32 bits from a GPIO or register to the input shift register
+;   OUT – shift up to 32 bits from the Output Shift Register to a pin or register
+;   PULL – move the contents of the Tx FIFO to the output shift register
+;   PUSH – move the contents of the input shift register to the Rx FIF and clear the ISR.
+;   MOV – Copy data from a register or pin to some other register or pin.
+;   IRQ – Sets or clears an IRQ flag
+;   SET – Write an immediate value to a pin or register
+;   JMP – Jumps to an absolute address within the PIO instruction memory
+;   WAIT – stall execution until a specific pin or IRQ flag is set or unset
+
+; .program tachometerCounter
+;     mov x, !null            ; Initialize X to 0xFFFFFFFF
+    
+; .wrap_target
+;     wait 1 pin 0            ; Wait for rising edge
+;     mov isr, x              ; Move current count to ISR
+;     push noblock            ; Push count to RX FIFO (C-code reads this)
+;     jmp x--, count_down     ; Decrement X
+; count_down:
+;     wait 0 pin 0            ; Wait for falling edge
+; .wrap
+
+; .program tachometerCounter
+;     mov x, !null            ; Initialize X to 0xFFFFFFFF
+    
+; .wrap_target
+; next_edge2:
+;     ; --- Rising Edge ---
+;     wait 1 pin 0            ; Wait for Low -> High
+;     mov isr, x              ; Capture count
+;     push noblock            ; Send to RX FIFO
+;     jmp x--, next_edge      ; Decrement X and jump to falling edge logic
+
+; next_edge:
+;     ; --- Falling Edge ---
+;     wait 0 pin 0            ; Wait for High -> Low
+;     mov isr, x              ; Capture count
+;     push noblock            ; Send to RX FIFO
+;     jmp x--, next_edge2   ; Decrement X and loop back to rising edge
+
+; .wrap
+
+.program tachometerCounter
+    mov x, !null            ; Initialize X to 0xFFFFFFFF
+    
+.wrap_target
+rising_edge:
+    wait 1 pin 0            ; Wait for Rising Edge
+    jmp x--, falling_edge           ; Decrement
+falling_edge:
+    wait 0 pin 0            ; Wait for Falling Edge
+    jmp x--, rising_edge
+.wrap
+
+; C helper function for the PIO State Machine tachometerCounter Program
+% c-sdk {
+static inline void tachometerCounter_program_init(PIO pio, uint sm, uint offset, uint pin) {
+    pio_sm_config c = tachometerCounter_program_get_default_config(offset);     // Get the default config for (clk_div, ISR, OSR, FIFOs, Pin mappings, etc)
+
+    sm_config_set_in_pins(&c, pin);         // Configures the wait pin
+    sm_config_set_jmp_pin(&c, pin);         // Configures the jmp pin
+
+    pio_gpio_init(pio, pin);                // Connect the GPIO to the PIO block
+
+    pio_sm_init(pio, sm, offset, &c);       // Intitialize the State Machine
+    pio_sm_set_enabled(pio, sm, true);      // Enable the State Machine
+}
+%}
